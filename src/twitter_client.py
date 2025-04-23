@@ -6,6 +6,7 @@ import logging
 import tweepy
 from typing import List, Dict, Optional
 from src.config import TwitterConfig
+from src.utils import retry_async, rate_limit, CircuitBreaker
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +15,7 @@ class TwitterClient:
     def __init__(self, config: TwitterConfig):
         self.config = config
         self.client = None
+        self.circuit_breaker = CircuitBreaker(failure_threshold=3, timeout=300)
         self._setup_client()
 
     def _setup_client(self):
@@ -35,6 +37,8 @@ class TwitterClient:
         except Exception as e:
             logger.error(f"Failed to initialize Twitter client: {e}")
 
+    @retry_async(max_attempts=3, delay=2.0)
+    @rate_limit(calls_per_minute=30)
     async def get_trending_topics(self, woeid: int = 1) -> List[Dict]:
         """
         Get trending topics for a specific location
@@ -57,8 +61,10 @@ class TwitterClient:
             ]
         except Exception as e:
             logger.error(f"Error fetching trending topics: {e}")
-            return []
+            raise
 
+    @retry_async(max_attempts=3, delay=1.5)
+    @rate_limit(calls_per_minute=60)
     async def search_tweets(self, query: str, max_results: int = 10) -> List[Dict]:
         """Search for tweets containing specific keywords"""
         if not self.client:
@@ -88,4 +94,4 @@ class TwitterClient:
 
         except Exception as e:
             logger.error(f"Error searching tweets: {e}")
-            return []
+            raise
